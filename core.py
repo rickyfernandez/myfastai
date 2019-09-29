@@ -5,6 +5,7 @@ import inspect
 import functools
 import itertools
 from copy import copy
+from operator import itemgetter
 from pathlib import Path
 from test import is_iter
 from typeguard import typechecked
@@ -226,9 +227,12 @@ def delegate_attr(self, k, to):
     try: return getattr(getattr(self, to), k)
     except AttributeError: raise AttributeError(k)
 
-def _is_array(x): return hasattr(x, "__array__") or hasattr(x, "iloc")
+def _is_array(x):
+    "if object is numpy or pandas array"
+    return hasattr(x, "__array__") or hasattr(x, "iloc")
 
 def _listify(obj):
+    "Turn object to list if iterator, if string or array place in list."
     if obj is None: return []
     if isinstance(obj, list): return obj
     if isinstance(obj, str) or _is_array(obj): return [obj]
@@ -284,10 +288,11 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
     """
     def __init__(self, items=None, *rest, use_list=False, match=None):
         if rest: items = (items,) + rest # ie. ([1,2], 3, 4)
-        if items is None: items = []
+        if items is None: items = [] # default to a list
         if (use_list is not None) or not _is_array(items):
             items = list(items) if use_list else _listify(items)
         if match is not None:
+            # copy elements to match length, or assure items have len match
             if len(items) == 1: items = items*len(match)
             else: assert len(items) == len(match), "Match length mismatch"
         super().__init__(items)
@@ -331,13 +336,13 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
         return False if isinstance(b, (str, dict, set)) else all_equal(b, self)
 
     def __repr__(self):
-        return repr(self.items) if _is_arra(self.items) else coll_repr(self)
+        return repr(self.items) if _is_array(self.items) else coll_repr(self)
 
     def __mul__(a,b):
         return a.__new(a.items*b)
 
     def __add__(a, b):
-        return a.__new(a.iterms + _listify(b))
+        return a.__new(a.items + _listify(b))
 
     def __radd__(a, b):
         return a._new(b) + a 
@@ -413,4 +418,4 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
         random.shuffle(it)
         return self._new(it)
 
-    """itemgetter, is_coll, random"""
+    """is_coll, random"""
