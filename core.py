@@ -1,5 +1,6 @@
 import os
 import re
+import bz2
 import types
 import typing
 import random
@@ -8,6 +9,7 @@ import operator
 import functools
 import itertools
 
+import mimetypes
 import pandas as pd
 from copy import copy
 from pathlib import Path
@@ -17,6 +19,7 @@ from functools import partial
 from operator import itemgetter
 from contextlib import contextmanager
 from IPython.core.debugger import set_trace
+from pathlib import Path
 
 from imports import is_coll, NoneType
 
@@ -727,4 +730,65 @@ def partialler(f, *args, order=None, **kwargs):
 
 def mapped(f, it):
     "map `f` over `it` unless it's not listy, in which case return  `f(it)`"
-    return L(it).mapped(f) if is_listy(it) else f(it)
+    return L(it).map(f) if is_listy(it) else f(it)
+
+def instantiate(t):
+    "Instatntiate `t` if it's a type, otherwise do nothing"
+    return t() if isinstance(t, type) else t
+
+class _Self:
+    "An alternative to `lambda` for calling methods on passed object."
+    def __init__(self): self.nms, self.args, self.kwargs, self.ready = [], [], [], True
+    def __repr__(self): return f"self: {self.nms}({self.args}, {self.kwargs})"
+
+    def __call__(self, *args, **kwargs):
+        # tricky __getattr__ sets the function (ie sum()) then __call__
+        # is run that appends arguments on first call after that it
+        # only computes
+        if self.ready:
+            x = args[0]
+            for n, a, k in zip(self.nms, self.args, self.kwargs):
+                x = getattr(x, n)
+                if callable(x) and a is not None: x = x(*a, **k)
+            return x
+        else:
+            self.args.append(args)
+            self.kwargs.append(kwargs)
+            self.ready = True
+            return self
+
+    def __getattr__(self, k):
+        if not self.ready:
+            self.args.append(None)
+            self.kwargs.append(None)
+        self.nms.append(k)
+        self.ready = False
+        return self
+
+class _SelfCls:
+    def __getattr__(self, k): return getattr(_Self(), k)
+
+Self = _SelfCls()
+
+@patch
+def ls(self:Path, file_type=None, file_exts=None):
+    "Content of path as a list"
+    extns=L(file_exts)
+    if file_type: extns +=\
+            L(k for k,v in mimetypes.types_map.items() if v.startswith(file_type+"/"))
+    return L(self.iterdir()).filter(lambda x: len(extns)==0 or x.suffix in extns)
+
+def bunzip(fn):
+    "bunzip `fn`, raising exception if output already exists"
+    fn = Path(fn)
+    assert fn.exists(), f"{fn} doesn't exist"
+    out_fn = fn.with_suffix("")
+    assert not out_fn.exists(), f"{out_fn} already exists"
+    with bz2.BZ2File(fn, "rb") as src, out_fn.open("wb") as dst:
+        for d in iter(lambda: src.read(1024*1024), b''): dst.write(d)
+
+def join_path_file(file, path, ext=""):
+    "Return `path/file` if file is a string or a `Path`, file otherwise"
+    if not isinstance(file, (str, Path)): return file
+    path.mkdir(parents=True, exist_ok=True)
+    return path/f"{file}{ext}"
