@@ -16,6 +16,7 @@ from typing import Generator, Iterator
 from functools import partial
 from operator import itemgetter
 from contextlib import contextmanager
+from IPython.core.debugger import set_trace
 
 from imports import is_coll, NoneType
 
@@ -607,7 +608,7 @@ def retain_type(new, old=None, typ=None):
     "Cast `new` to type of `old` if it's a superclass"
     # e.g. old is TensorImage, new is Tensor - if not subclass then do nothing
     if new is None: return new
-    assert old is not None or typ is not None # at least one value
+    assert old is not None or typ is not None
     if typ is None:
         if not isinstance(old, type(new)): return new
         typ = old if isinstance(old, type) else type(old)
@@ -649,7 +650,7 @@ rnum_methods = """
 """.split()
 inum_methods = """
     __iadd__ __isub__ __imul__ __imatmul__ __itruediv__
-    __ifloordiv__ __imod__ __ipow__ __ilshift__ __irshift__ __iand__ __ixor__ __ior__ 
+    __ifloordiv__ __imod__ __ipow__ __ilshift__ __irshift__ __iand__ __ixor__ __ior__
 """.split()
 
 class Tuple(tuple):
@@ -692,3 +693,38 @@ class TupleTitled(Tuple, ShowTitle):
     "A `Tuple` with `show`"
     pass
 
+
+def trace(func):
+    "Add `set_trace` to an existing function `func`"
+    def _inner(*args, **kwargs):
+        set_trace()
+        return func(*args, **kwargs)
+    return _inner
+
+def compose(*funcs, order=None):
+    """Create a function that composes all functions in `funcs`, passing along
+    remaining `*args` and `**kwargs` to all"""
+    funcs = L(funcs)
+    if order is not None: funcs = funcs.sorted(order)
+    def _inner(x, *args, **kwargs):
+        for f in L(funcs): x = f(x, *args, **kwargs)
+        return x
+    return _inner
+
+def maps(*args, retain=noop):
+    "Like `map`, except funcs are composed first"
+    f = compose(*args[:-1])
+    def _f(b): return retain(f(b), b)
+    return map(_f, args[-1])
+
+def partialler(f, *args, order=None, **kwargs):
+    "Like `functools.partial` but also copies over docstring"
+    fnew = partial(f, *args, **kwargs)
+    fnew.__doc__ = f.__doc__
+    if order is not None: fnew.order = order
+    elif hasattr(f, "order"): fnew.order = f.order
+    return fnew
+
+def mapped(f, it):
+    "map `f` over `it` unless it's not listy, in which case return  `f(it)`"
+    return L(it).mapped(f) if is_listy(it) else f(it)
