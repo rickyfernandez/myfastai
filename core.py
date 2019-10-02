@@ -1,16 +1,20 @@
 import os
+import re
 import types
 import typing
+import random
 import inspect
 import functools
 import itertools
+
 from copy import copy
-from operator import itemgetter
 from pathlib import Path
 from test import is_iter
-from typeguard import typechecked
+from functools import partial
+from operator import itemgetter
 from contextlib import contextmanager
 
+from imports import is_coll
 
 class FixSigMeta(type):
     "A metaclass that fixes the signautre on classes that override __new__"
@@ -31,10 +35,6 @@ class PrePostInitMeta(FixSigMeta):
             res.__init__(*args, **kwargs)
             if hasattr(res, "__pre_init__"): res.__post_init__(*args, **kwargs)
         return res
-
-class BaseObj(metaclass=PrePostInitMeta):
-    """Base class that provides `PrePostInitMeta` metaclass to subclasses."""
-    pass
 
 class NewChkMeta(FixSigMeta):
     "Metaclass to avoid recreating object passed to constructor."
@@ -112,7 +112,7 @@ def use_kwargs(names, keep=False):
         func.__signature__ = sig.replace(parameters=sig_dict.values())
         return func
     return _func
-                
+
 def delegates(to=None, keep=False):
     "Decorator: replace `**kwargs` in signature with params from `to`."
     def _func(func):
@@ -155,10 +155,6 @@ def method(func):
     "Mark `func` as a method"
     # `1` is a dummy instance since Py3 doesn't allow `None` any more
     return types.MethodType(func, 1)
-
-def runtime_check(func):
-    # make sure arguments are correct type
-    return typechecked(always=True)(func)
 
 @contextmanager
 def working_directory(path):
@@ -290,6 +286,7 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
         if rest: items = (items,) + rest # ie. ([1,2], 3, 4)
         if items is None: items = [] # default to a list
         if (use_list is not None) or not _is_array(items):
+            # mainly for strings, iterators, and arrays
             items = list(items) if use_list else _listify(items)
         if match is not None:
             # copy elements to match length, or assure items have len match
@@ -338,19 +335,19 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
     def __repr__(self):
         return repr(self.items) if _is_array(self.items) else coll_repr(self)
 
-    def __mul__(a,b):
-        return a.__new(a.items*b)
+    def __mul__(a, b):
+        return a._new(a.items*b)
 
     def __add__(a, b):
-        return a.__new(a.items + _listify(b))
+        return a._new(a.items + _listify(b))
 
     def __radd__(a, b):
-        return a._new(b) + a 
+        return a._new(b) + a
 
     def __addi__(a, b):
         a.items += list(b)
         return a
-   
+
     def sorted(self, key=None, reverse=False):
        """
        New `L` sorted by `key`. If key is str use `attrgetter`. If key is
@@ -361,61 +358,130 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
        else: k=key
        return self._new(sorted(self.items, key=k, reverse=reverse))
 
-    @classmethod 
+    @classmethod
+    def split(cls, s, sep=None, maxsplit=-1):
+        return cls(s.split(sep, maxsplit))
+
+    @classmethod
     def range(cls, a, b=None, step=None):
        """"
        Same as builtin `range`, but returns an `L`. Can pass a collection for
        `a`, to use `len(a)`
        """
-       if is_coll(a): a= len(a)
-       return (cls(range(a, b, step) if step is not None 
+       if is_coll(a): a = len(a)
+       return (cls(range(a, b, step) if step is not None
                else range(a,b) if b is not None else range(a)))
+
+    def map(self, func, *args, **kwargs):
+        """
+        Create new `L` with `func` applied to all `items`, passing `args` and
+        `kwargs` to `func`."""
+        f = (partial(func, *args, **kwargs) if callable(func)
+                else func.format if isinstance(func, str) # print
+                else func.__getitem__)                    # class
+        return self._new(map(f, self))
 
     def unique(self):
         return L(dict.fromkeys(self).keys())
-        
+
     def val2idx(self):
         return {v:k for k,v in enumerate(self)}
 
     def itemgot(self, idx):
-        return self.mapped(itemgetter(idx))
+        return self.map(itemgetter(idx))
 
     def attrgot(self, k, default=None):
-        return self.mapped(lambda obj: getattr(obj, k, default))
+        return self.map(lambda obj: getattr(obj, k, default))
 
     def cycle(self):
         return cycle(self)
 
-    def filtered(self, func, *args, **kwargs):
+    def filter(self, func, *args, **kwargs):
         return self._new(filter(partial(func, *args, **kwargs), self))
 
-    def mapped(self, func, *args, **kwargs):
-        return self._new(map(partial(func, *args, **kwargs), self))
+    def map_dict(self, func, *args, **kwargs):
+        return {k:func(k, *args, **kwargs) for k in self}
 
-    def mapped_dict(self, func, *args, **kwargs):
-        return {k:func(k, *args, **kwargs) for k in slef}
-
-    def starmapped(self, func, *args, **kwargs):
+    def starmap(self, func, *args, **kwargs):
         return self._new(itertools.starmap(partial(func, *args, **kwargs), self))
 
-    def zipped(self, cycled=False):
-        return self._new([self, *rest]).zipped(cycle=cyclded)
+    def zip(self, cycled=False):
+        return self._new((zip_cycle if cycled else zip)(*self))
 
-    def zippedwith(self, func, cycled=False):
-        return self.zipped(cycled=cycled).starmapped(func)
+    def zipwith(self, *rest, cycled=False):
+        return self._new([self, *rest]).zip(cycled=cycled)
 
-    def mapped_zip(self, func, cycled=False):
-        return self.zipped(cycled=cycled).starmapped(fnc)
+    def map_zip(self, func, cycled=False):
+        return self.zip(cycled=cycled).starmap(func)
 
-    def mapped_zipwith(self, func, cycled=False):
-        return self.zipwith(*rest, cycled=cycled).starmapped(func)
+    def map_zipwith(self, func, *rest, cycled=False):
+        return self.zipwith(*rest, cycled=cycled).starmap(func)
 
     def concat(self):
-        return self._new(itertools.chain.from_iterable(self.mapped(L)))
-    
+        return self._new(itertools.chain.from_iterable(self.map(L)))
+
     def shuffled(self):
         it = copy(self.items)
         random.shuffle(it)
         return self._new(it)
 
-    """is_coll, random"""
+def ifnone(a, b):
+    "`b` if `a` is None else `a`"
+    return b if a is None else a
+
+def get_class(nm, *fld_names, sup=None, doc=None, funcs=None, **flds):
+    "Dynamically create a class, optionally inheriting from `sup`, containg `fld_name`"
+    attrs = {}
+    for f in fld_names: attrs[f] = None
+    for f in L(funcs): attrs[f.__name__] = f
+    for k,v in flds.items(): attrs[k] = v
+    sup = ifnone(sup, ())
+    if not isinstance(sup, tuple): sup=(sup,)
+
+    def _init(self, *args, **kwargs):
+        for i,v in enumerate(args): setattr(self, list(attrs.keys())[i], v)
+        for k,v in kwargs.items(): setattr(self, k, v)
+
+    def _repr(self):
+        return "\n".join(f"{o}: {gegtattr(self, o)}" for o in set(dir(self))
+                if not o.startswith("_") and not isinstance(getattr(self, o), types.MethodType))
+
+    if not sup: attrs["__repr__"]= _repr
+    attrs["__init__"] = _init
+    res = type(nm, sup, attrs)
+    if doc is not None: res.__doc__ = doc
+    return res
+
+def mk_class(nm, *fld_names, sup=None, doc=None, funcs=None, mod=None, **flds):
+    "Create a class using `get_class` and add to the caller's module"
+    if mod is None: mod = inspect.currentframe().f_back.f_locals
+    res = get_class(nm, *fld_names, sup=sup, doc=doc, funcs=funcs, **flds)
+    mod[nm] = res
+
+def wrap_class(nm, *fld_names, sup=None, doc=None, funcs=None, **flds):
+    "Decorator: makes functijon a method of a new class `nm` passing parameters to `mk_class`."
+    def _inner(f):
+        mk_class(nm, *fld_names, sup=sup, doc=doc, funcs=L(funcs)+f, mod=f.__globals__, **flds)
+        return f
+    return _inner
+
+def noop(x=None, *args, **kwargs):
+    "Do nothing."
+    return x
+
+def noops(self, x=None, *args, **kwargs):
+    "Do nothing."
+    return x
+
+def store_attr(self, nms):
+    "Store params named in comma-separated `nms` from calling context into attrs in `self`"
+    mod = inspect.currentframe().f_back.f_locals
+    for n in re.split(', *', nms): setattr(self, n, mod[n])
+
+def attrdict(obj, *ks):
+    "Dict from each `k` in `ks` to `getattr(o,k)`"
+    return {k:getattr(obj, k) for k in ks}
+
+def properties(cls, *ps):
+    "Change attrs in `cls` with names in `ps` to properties"
+    for p in ps: setattr(cls, p, property(getattr(cls, p)))
