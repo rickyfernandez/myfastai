@@ -1,3 +1,4 @@
+NoneType = type(None)
 
 def is_coll(obj):
     "Test wether `obj` can be used in a `for` loop"

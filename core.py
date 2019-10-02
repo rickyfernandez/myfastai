@@ -4,17 +4,20 @@ import types
 import typing
 import random
 import inspect
+import operator
 import functools
 import itertools
 
+import pandas as pd
 from copy import copy
 from pathlib import Path
 from test import is_iter
+from typing import Generator, Iterator
 from functools import partial
 from operator import itemgetter
 from contextlib import contextmanager
 
-from imports import is_coll
+from imports import is_coll, NoneType
 
 class FixSigMeta(type):
     "A metaclass that fixes the signautre on classes that override __new__"
@@ -196,16 +199,18 @@ class GetAttr:
     Inherit from this to have all attr accesses in `self._xtra`
     passed down to `self.default`
     """
+    _default="default"
     @property
     def _xtra(self):
         # default if _xtra not defined
-        return [o for o in dir(self.default) if not o.startswith("_")]
+        return [o for o in dir(getattr(self, self._default))
+                if not o.startswith("_")]
 
     def __getattr__(self, k):
         # how to handle attributes not defined by the class
-        if k not in ("_xtra", "default") and\
+        if k not in ("_xtra", self._default) and\
                 (self._xtra is None or k in self._xtra):
-            return getattr(self.default, k)
+            return getattr(getattr(self, self._default), k)
         raise AttributeError(k)
 
     def __dir__(self): return custom_dir(self, self._xtra)
@@ -485,3 +490,205 @@ def attrdict(obj, *ks):
 def properties(cls, *ps):
     "Change attrs in `cls` with names in `ps` to properties"
     for p in ps: setattr(cls, p, property(getattr(cls, p)))
+
+def tuplify(obj, use_list=False, match=None):
+    "Make `obj` a tuple"
+    return tuple(L(obj, use_list=use_list, match=match))
+
+def replicate(item, match):
+    "Create tuple of `item` copied `len(match)` times"
+    return (item,)*len(match)
+
+def uniqueify(x, sort=False, bidir=False, start=None):
+    """Return the unique elements in `x`, optionally `sort`-ed,
+    optionally return the reverse correspondance."""
+    res = L(x).unique()
+    if start is not None: res = start + res
+    if sort: res.sort()
+    if bidir: return res, res.val2idx()
+    return res
+
+def setify(obj):
+    return obj if isinstance(obj, set) else set(L(obj))
+
+def is_listy(x):
+    return isinstance(x, (tuple, list, L, slice, Generator))
+
+def range_of(x):
+    "All indices of collection `x` (i.e. `list(range(len(x)))`)"
+    return list(range(len(x)))
+
+def groupby(x, key):
+    """"Like `itertools.groupby` but doesn't need to be sorted,
+    and isn't lazy"""
+    res = {}
+    for obj in x: res.setdefault(key(obj), []).append(obj)
+    return res
+
+def merge(*ds):
+    "Merge all dictionaries in `ds`"
+    return {k:v for d in ds if d is not None for k,v in d.items()}
+
+def shufflish(x, pct=0.04):
+    """Randomly relocate items of `x` up to `pct` of `len(x)` from
+    their starting location"""
+    n = len(x)
+    return L(x[i] for i in sorted(range_of(x), key=lambda o: o+n*(1 + random.random()*pct)))
+
+class IterLen:
+    "Base class to add iteration to anything supporting `len` and `__getitem__`"
+    def __iter__(self): return (self[i] for i in range_of(self))
+
+class ReindexCollection(GetAttr, IterLen):
+    """Reindexes collection `coll` with indices `idxs` and optional
+    LRU cache of size `cache`"""
+    _default = "coll"
+    def __init__(self, coll, idxs=None, cache=None):
+        self.coll, self.idxs, self.cache = coll, ifnone(idxs, L.range(coll)), cache
+        def _get(self, i): return self.coll[i]
+        self._get = types.MethodType(_get, self)
+        if cache is not None: self._get = functools.lru_cache(maxsize=cache)(self._get)
+
+    def __getitem__(self, i): return self._get(self.idxs[i])
+    def __len__(self): return len(self.coll)
+    def reindex(self, idxs): self.idxs = idxs
+    def shuffle(self): random.shuffle(self.idxs)
+    def cache_clear(self): self._get.cache_clear()
+
+def _oper(op, a, b=None):
+    return (lambda obj: op(obj, a)) if b is None else op(a, b)
+
+def _mk_op(nm, mod=None):
+    "Create an operator using `oper` and add to the caller's module"
+    if mod is None: mod = inspect.currentframe().f_back.f_locals
+    op = getattr(operator, nm)
+    def _inner(a, b=None): return _oper(op, a, b)
+    _inner.__name__ = _inner.__qualname__ = nm
+    _inner.__doc__ = f"Same as `operator.{nm}`, or returns partial if 1 arg"
+    mod[nm] = _inner
+
+for op in "lt gt le ge eq ne add sub mul truediv".split(): _mk_op(op)
+
+class _InfMeta(type):
+    @property
+    def count(self): return itertools.count()
+    @property
+    def zeros(self): return itertools.cycle([0])
+    @property
+    def ones(self): return itertools.cylce([1])
+    @property
+    def nones(self): return itertools.cylce([None])
+
+class Inf(metaclass=_InfMeta):
+    "Infinite lists"
+    pass
+
+def true(*args, **kwargs):
+    "Predicate: always`True`"
+    return True
+
+def stop(e=StopIteration):
+    "Raises exception `e` (by default `StopException`) even if in an expression"
+    raise e
+
+def gen(func, seq, cound=true):
+    "Like `(cunf(o) for o in seq if cound(func(o))` but handles `StopIteration`"
+    return iterools.takewhile(cond, map(func, seq))
+
+def chunked(it, cs, drop_last=False):
+    # it is list like or iterator and cs is size to chunk through
+    if not isinstance(it, Iterator): it = iter(it)
+    while True:
+        res = list(itertools.islice(it, cs))
+        if res and (len(res) == cs or not drop_last): yield res
+        if len(res) < cs: return
+
+def retain_type(new, old=None, typ=None):
+    "Cast `new` to type of `old` if it's a superclass"
+    # e.g. old is TensorImage, new is Tensor - if not subclass then do nothing
+    if new is None: return new
+    assert old is not None or typ is not None # at least one value
+    if typ is None:
+        if not isinstance(old, type(new)): return new
+        typ = old if isinstance(old, type) else type(old)
+    # Do nothing the new type is already an instance of requested type (i.e. same type)
+    return typ(new) if typ!=NoneType and not isinstance(new, typ) else new
+
+def retain_types(new, old=None, typs=None):
+    "Cast each item of `new` to type of matching item in `old` if it's a superclass"
+    if not is_listy(new): return retain_type(new, old, typs)
+    return type(new)(L(new, old, typs).map_zip(retain_type, cycled=True))
+
+def show_title(o, ax=None, ctx=None, label=None, **kwargs):
+    "Set title of `ax` to `o`, or print `o` if `ax` is `None`"
+    ax = ifnone(ax, ctx)
+    if ax is None: print(o)
+    elif hasattr(ax, "set_title"): ax.set_title(o)
+    elif isinstance(ax, pd.Series):
+        while label in ax: label += "_"
+        ax = ax.append(pd.Series({label: o}))
+    return ax
+
+class ShowTitle:
+    "Base class that adds a simple `show`"
+    _show_args = {"label": "text"}
+    def show(self, ctx=None, **kwargs):
+        return show_title(str(self), ctx=ctx, **merge(self._show_args, kwargs))
+
+class Int(int, ShowTitle): pass
+class Float(float, ShowTitle): pass
+class Str(str, ShowTitle): pass
+
+num_methods = """
+    __add__ __sub__ __mul__ __matmul__ __truediv__ __floordiv__ __mod__ __divmod__ __pow__
+    __lshift__ __rshift__ __and__ __xor__ __or__ __neg__ __pos__ __abs__
+""".split()
+rnum_methods = """
+    __radd__ __rsub__ __rmul__ __rmatmul__ __rtruediv__ __rfloordiv__ __rmod__ __rdivmod__
+    __rpow__ __rlshift__ __rrshift__ __rand__ __rxor__ __ror__
+""".split()
+inum_methods = """
+    __iadd__ __isub__ __imul__ __imatmul__ __itruediv__
+    __ifloordiv__ __imod__ __ipow__ __ilshift__ __irshift__ __iand__ __ixor__ __ior__ 
+""".split()
+
+class Tuple(tuple):
+    "A `tuple` with elementwise ops and more friendly __init__ behavior"
+    def __new__(cls, x=None, *rest):
+        if x is None: x = ()
+        if not isinstance(x, tuple):
+            if len(rest): x = (x,)
+            else:
+                try: x = tuple(iter(x))
+                except TypeError: x = (x,)
+        return super().__new__(cls, x + rest if rest else x)
+
+    def _op(self, op, *args):
+        if not isinstance(self, Tuple): self = Tuple(self)
+        return type(self)(map(op, self, *map(cycle, args)))
+
+    def mul(self, *args):
+        "`*` is already defiend `tuple` for replicating, so use `mul` instead"
+        return Tuple._op(self, operator.mul, *args)
+
+    def add(self, *args):
+        "`+` is already defined in `tuple` for concat, so use `add` instaed"
+        return Tuple._op(self, operator.add, *args)
+
+def _get_op(op):
+    if isinstance(op, str): op = getattr(operator, op)
+    def _f(self, *args): return self._op(op, *args)
+    return _f
+
+for n in num_methods:
+    if not hasattr(Tuple, n) and hasattr(operator, n): setattr(Tuple, n, _get_op(n))
+
+for n in "eq ne lt le gt ge".split(): setattr(Tuple, n, _get_op(n))
+setattr(Tuple, "__invert__", _get_op("__not__"))
+setattr(Tuple, "max", _get_op(max))
+setattr(Tuple, "min", _get_op(min))
+
+class TupleTitled(Tuple, ShowTitle):
+    "A `Tuple` with `show`"
+    pass
+
