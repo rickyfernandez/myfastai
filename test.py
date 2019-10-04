@@ -7,7 +7,7 @@ from PIL import Image
 from functools import partial
 from collections import Counter
 from contextlib import redirect_stdout
-from typing import Iterable, Generator
+from collections.abc import Iterable, Generator
 
 def test_fail(func, msg="", contains=""):
     """

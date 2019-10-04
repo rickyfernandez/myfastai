@@ -10,7 +10,11 @@ import functools
 import itertools
 
 import mimetypes
+import numpy as np
 import pandas as pd
+
+from types import SimpleNamespace
+
 from copy import copy
 from pathlib import Path
 from test import is_iter
@@ -22,6 +26,8 @@ from IPython.core.debugger import set_trace
 from pathlib import Path
 
 from imports import is_coll, NoneType
+
+defaults = SimpleNamespace()
 
 class FixSigMeta(type):
     "A metaclass that fixes the signautre on classes that override __new__"
@@ -198,6 +204,25 @@ def custom_dir(c, add:list):
     "Implement custom `__dir__`, adding `add` to `cls`"
     return dir(type(c)) + list(c.__dict__.keys()) + add
 
+class _Arg:
+    def __init__(self, i): self.i = i
+_0, _1, _2, _3, _4 = _Arg(0), _Arg(1), _Arg(2), _Arg(3), _Arg(4)
+
+class bind:
+    """Same as `partial`, except you can use `_0` and `_1` etc
+    param placeholders."""
+    def __init__(self, fn, *pargs, **pkwargs):
+        self.fn, self.pargs, self.pkwargs = fn, pargs, pkwargs
+        self.maxi = max((x.i for x in pargs if isinstance(x, _Arg)), default=-1)
+
+    def __call__(self, *args, **kwargs):
+        args = list(args)
+        kwargs = {**self.pkwargs, **kwargs}
+        for k,v in kwargs.items():
+            if isinstance(v, _Arg): kwargs[k] = args.pop(v.i)
+        fargs = [args[x.i] if isinstance(x, _Arg) else x for x in self.pargs] +args[self.maxi+1:]
+        return self.fn(*fargs, **kwargs)
+
 class GetAttr:
     """
     Inherit from this to have all attr accesses in `self._xtra`
@@ -255,7 +280,7 @@ def mask2idxs(mask):
     if isinstance(mask, slice): return mask
     mask = list(mask)
     if len(mask) == 0: return []
-    if isinstance(mask[0], bool): return [i for i, m in enumerate(mask) if m]
+    if isinstance(mask[0], (bool, NoneType)): return [i for i, m in enumerate(mask) if m]
     return [int(i) for i in mask]
 
 listable_types = typing.Collection, typing.Generator, map, filter, zip
@@ -385,10 +410,10 @@ class L(CollBase, GetAttr, metaclass=NewChkMeta):
         """
         Create new `L` with `func` applied to all `items`, passing `args` and
         `kwargs` to `func`."""
-        f = (partial(func, *args, **kwargs) if callable(func)
+        g = (bind(func, *args, **kwargs) if callable(func)
                 else func.format if isinstance(func, str) # print
                 else func.__getitem__)                    # class
-        return self._new(map(f, self))
+        return self._new(map(g, self))
 
     def unique(self):
         return L(dict.fromkeys(self).keys())
@@ -792,3 +817,58 @@ def join_path_file(file, path, ext=""):
     if not isinstance(file, (str, Path)): return file
     path.mkdir(parents=True, exist_ok=True)
     return path/f"{file}{ext}"
+
+def _is_instance(f, gs):
+    tst = [g if type(g) in [type, "function"] else g.__class__ for g in gs]
+    for g in tst:
+        if isinstance(f, g) or f==g: return True
+    return False
+
+def _is_first(f, gs):
+    for o in L(getattr(f, "run_after", None)):
+        if _is_instance(o, gs): return False
+    for g in gs:
+        if _is_instance(f, L(getattr(g, "run_before", None))): return False
+    return True
+
+def sort_by_run(fs):
+    end = L(fs).attrgot("toward_end")
+    inp, res = L(fs)[~end] + L(fs)[end], L()
+    while len(inp):
+        for i,o in enumerate(inp):
+            if _is_first(o, inp):
+                res.append(inp.pop(i))
+                break
+        else: raise Exception("Impossible to sort")
+    return res
+
+def display_df(df):
+    "Display `df` in a notebook or defaults to print"
+    try: from Ipython.display import display, HTML
+    except: return print(df)
+    display(HTML(df.to_html()))
+
+def round_multiple(x, mult, round_down=False):
+    "Round `x` to nearest multiple of `mult`"
+    def _f(x_): return (int if round_down else round)(x_/mult)*mult
+    res = L(x).map(_f)
+    return res if is_listy(x) else res[0]
+
+def even_mults(start, stop, n):
+    "Build log-stepped array from `start` to `stop` in `n` steps."
+    if n==1: return stop
+    mult = stop/start
+    step = mult**(1/(n-1))
+    return np.array([start*(step**i) for i in range(n)])
+
+
+def num_cpus():
+    "Get number of cpus"
+    try: return len(os.sched_getaffinity(0))
+    except AttributeError: return os.cpu_count()
+
+defaults.cpus = num_cpus()
+
+def add_pops(f, n=2):
+    "Create properties passing each of `range(n)` to f"
+    return (property(partial(f, i)) for i in range(n))
