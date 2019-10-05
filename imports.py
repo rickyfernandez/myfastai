@@ -1,3 +1,5 @@
+from warnings import warn
+
 NoneType = type(None)
 
 def is_coll(obj):
