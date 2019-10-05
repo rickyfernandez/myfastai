@@ -29,7 +29,16 @@ from textwrap import TextWrapper
 from operator import itemgetter, attrgetter, methodcaller
 from urllib.request import urlopen
 
+# External modules
+#import requests, yaml, matplotlib.pyplot as plt, pandas as pd, scipy
+import matplotlib.pyplot as plt, pandas as pd, scipy
+from pandas.api.types import is_categorical_dtype, is_numeric_dtype
+
+from numpy import array, ndarray
+from IPython.core.debugger import set_trace
+
 NoneType = type(None)
+string_classes = (str, bytes)
 
 def is_iter(obj):
     """Test wheter `obj` can be used in a `for` loop."""
@@ -41,5 +50,25 @@ def is_coll(obj):
     # Rank 0 tensors in PyTorch do not have working `len`
     return hasattr(obj, "__len__") and getattr(obj, "ndim", 1)
 
-if __name__ == "__main__":
-    print("hi")
+def all_equal(a, b):
+    """Compares whether `a` and `b` are the same length and have the same
+    contents."""
+    if not is_iter(b): return False
+    return all(equals(a_, b_) for a_, b_ in itertools.zip_longest(a, b))
+
+def one_is_instance(a, b, t):
+    "True if a or b is instance of t."
+    return isinstance(a, t) or isinstance(b, t)
+
+def equals(a, b):
+    "Compares `a` and `b` for equality. Supports sublists, tensors and arrays too."
+    if one_is_instance(a, b, type): return a == b
+    if hasattr(a, "__array_eq__"):  return a.__array_eq__(b)
+    if hasattr(b, "__array_eq__"):  return b.__array_eq__(a)
+
+    if one_is_instance(a, b, ndarray): cmp = array_equal
+    elif one_is_instance(a, b, (str, dict, set)): cmp = operator.eq
+    elif is_iter(a): cmp = all_equal
+    else: cmp = operator.eq
+
+    return cmp(a, b)
