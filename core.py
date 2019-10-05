@@ -42,6 +42,7 @@ class PrePostInitMeta(FixSigMeta):
     "A metaclass that calls optional `__pre_init__` and `__init__` methods."
     def __call__(cls, *args, **kwargs):
         # create class and perform pre/post calls if exists
+        # python is standard to call new and init
         res = cls.__new__(cls)
         if type(res) == cls:
             if hasattr(res, "__pre_init__"): res.__pre_init__(*args, **kwargs)

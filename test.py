@@ -30,9 +30,6 @@ def test(a, b, cmp, cname=None):
     if cname is None: cname = cmp.__name__
     assert cmp(a, b), f"{cname}:\n{a}\n{b}"
 
-def is_iter(obj):
-    """Test wheter `o` can be used in a `for` loop."""
-    return isinstance(obj, (Iterable, Generator)) and getattr(obj, "ndim", 1)
 
 def all_equal(a, b):
     """
