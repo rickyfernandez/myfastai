@@ -1,13 +1,8 @@
-import io
-import re
-import operator
-import itertools
-import numpy as np
-from PIL import Image
-from functools import partial
-from collections import Counter
-from contextlib import redirect_stdout
-from collections.abc import Iterable, Generator
+__all__ = ["test_fail", "test", "nequals", "test_eq", "test_eq_type", "test_ne", "is_close",
+           "test_close", "test_is", "test_shuffled", "test_stdout", "TEST_IMAGE",
+           "test_fig_exists"]
+
+from .imports import *
 
 def test_fail(func, msg="", contains=""):
     """
@@ -29,37 +24,6 @@ def test(a, b, cmp, cname=None):
     """
     if cname is None: cname = cmp.__name__
     assert cmp(a, b), f"{cname}:\n{a}\n{b}"
-
-
-def all_equal(a, b):
-    """
-    Compares whether `a` and `b` are the same length and have the same
-    contents.
-    """
-    if not is_iter(b): return False
-    return all(equals(a_, b_) for a_, b_ in itertools.zip_longest(a, b))
-
-def one_is_instance(a, b, t):
-    """True if a or b is instance of t."""
-    return isinstance(a, t) or isinstance(b, t)
-
-def equals(a, b):
-    """Compares `a` and `b` for equality. Supports sublists, tensors and arrays too."""
-
-    if one_is_instance(a, b, type): return a == b
-    if hasattr(a, "__array_eq__"):  return a.__array_eq__(b)
-    if hasattr(b, "__array_eq__"):  return b.__array_eq__(a)
-
-    if one_is_instance(a, b, np.ndarray):
-        cmp = np.array_equal
-    elif one_is_instance(a, b, (str, dict, set)):
-        cmp = operator.eq
-    elif is_iter(a):
-        cmp = all_equal
-    else:
-        cmp = operator.eq
-
-    return cmp(a, b)
 
 def nequals(a, b):
     """Compares `a` and `b` for `not equals`"""
@@ -101,12 +65,17 @@ def test_shuffled(a, b):
     test_eq(Counter(a), Counter(b))
 
 def test_stdout(func, exp, regex=False):
-    """Test that `fucn` prints `exp` to stdout, optionally checking as `regex`"""
+    "Test that `func` prints `exp` to stdout, optionally checking as `regex`"
     s = io.StringIO()
     with redirect_stdout(s): func()
     if regex: assert re.search(exp, s.getvalue()) is not None
     else: test_eq(s.getvalue(), f"{exp}\n" if len(exp) > 0 else "")
 
+TEST_IMAGE = "images/puppy.jpg"
+
 def test_fig_exists(ax):
-    """Test there is a figure displayed in `ax`"""
+    "Test there is a figure displayed in `ax`"
     assert ax and len(np.frombuffer(ax.figure.canvas.tostring_argb(), dtype=np.uint8))
+
+if __name__ == "__main__":
+    print("hi")

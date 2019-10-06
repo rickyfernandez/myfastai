@@ -2,6 +2,7 @@ import io,\
        operator,\
        sys,\
        os,\
+       re,\
        mimetypes,\
        csv,\
        itertools,\
@@ -9,7 +10,10 @@ import io,\
        shutil,\
        glob,\
        pickle,\
-       tarfile
+       tarfile,\
+       collections,\
+       hashlib,\
+       random
 
 from concurrent.futures import as_completed
 from functools import partial, reduce
@@ -31,10 +35,8 @@ from urllib.request import urlopen
 
 # External modules
 #import requests, yaml, matplotlib.pyplot as plt, pandas as pd, scipy
-import matplotlib.pyplot as plt, pandas as pd, scipy
+import matplotlib.pyplot as plt, numpy as np, pandas as pd, scipy
 from pandas.api.types import is_categorical_dtype, is_numeric_dtype
-
-from numpy import array, ndarray
 from IPython.core.debugger import set_trace
 
 NoneType = type(None)
@@ -66,7 +68,7 @@ def equals(a, b):
     if hasattr(a, "__array_eq__"):  return a.__array_eq__(b)
     if hasattr(b, "__array_eq__"):  return b.__array_eq__(a)
 
-    if one_is_instance(a, b, ndarray): cmp = array_equal
+    if one_is_instance(a, b, np.ndarray): cmp = np.array_equal
     elif one_is_instance(a, b, (str, dict, set)): cmp = operator.eq
     elif is_iter(a): cmp = all_equal
     else: cmp = operator.eq
