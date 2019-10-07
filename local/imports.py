@@ -13,7 +13,9 @@ import io,\
        tarfile,\
        collections,\
        hashlib,\
-       random
+       random,\
+       inspect,\
+       types
 
 from concurrent.futures import as_completed
 from functools import partial, reduce
@@ -57,6 +59,14 @@ def all_equal(a, b):
     contents."""
     if not is_iter(b): return False
     return all(equals(a_, b_) for a_, b_ in itertools.zip_longest(a, b))
+
+def noop(x=None, *args, **kwargs):
+    "Do nothing."
+    return x
+
+def noops(self, x=None, *args, **kwargs):
+    "Do nothing."
+    return x
 
 def one_is_instance(a, b, t):
     "True if a or b is instance of t."
