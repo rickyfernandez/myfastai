@@ -39,7 +39,7 @@ class PrePostInitMeta(FixSigMeta):
         if type(res) == cls:
             if hasattr(res, "__pre_init__"): res.__pre_init__(*args, **kwargs)
             res.__init__(*args, **kwargs)
-            if hasattr(res, "__pre_init__"): res.__post_init__(*args, **kwargs)
+            if hasattr(res, "__post_init__"): res.__post_init__(*args, **kwargs)
         return res
 
 class NewChkMeta(FixSigMeta):
@@ -90,7 +90,7 @@ def patch_to(cls, as_prop=False):
 
 def patch(func):
     "Decorator: add `func` to the first parameter's class (based on func's type annotations)."
-    # neat method if first argument is class we can transer function to the class
+    # neat method if first argument is class we can transfer function to the class
     # however first argument becomes self
     cls = next(iter(func.__annotations__.values()))
     return patch_to(cls)(func)

@@ -15,7 +15,9 @@ import io,\
        hashlib,\
        random,\
        inspect,\
-       types
+       types,\
+       string,\
+       functools
 
 from concurrent.futures import as_completed
 from functools import partial, reduce
@@ -40,6 +42,14 @@ from urllib.request import urlopen
 import matplotlib.pyplot as plt, numpy as np, pandas as pd, scipy
 from pandas.api.types import is_categorical_dtype, is_numeric_dtype
 from IPython.core.debugger import set_trace
+
+try:
+    from types import WrapperDescriptorType, MethodWrapperType, MethodDescriptorType
+except ImportError:
+    WrapperDescriptorType = type(object.__init__)
+    MethodWrapperType = type(object().__str__)
+    MethodDescriptorType = type(str.join)
+from types import BuiltinFunctionType, BuiltinMethodType, MethodType, FunctionType
 
 NoneType = type(None)
 string_classes = (str, bytes)
