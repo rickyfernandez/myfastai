@@ -244,3 +244,52 @@ def batch_to_samples(b, max_n=10):
     else:
         res = L(b).map(partial(batch_to_samples, max_n=max_n))
         return retain_types(res.zip(), [b])
+
+def make_cross_image(bw=True):
+    "Create a tensor containg a cross image, either `bw` (True) or color."
+    if bw:
+        im = torch.zeros(5,5)
+        im[2,:] = 1.
+        im[:,2] = 1.
+    else:
+        im = torch.zeros(3, 5, 5)
+        im[0,2,:] = 1.
+        im[1,:,2] = 1.
+    return im
+
+def show_title(o, ax=None, ctx=None, label=None, **kwargs):
+    "Set title of `ax` to `o`, or print if `ax` is `None`"
+    ax = ifnone(ax, ctx)
+    if ax is None: print(o)
+    elif hasattr(ax, 'set_title'): ax.set_title(o)
+    elif isinstance(ax, pd.Series):
+        while label in ax: labeel += "_"
+        ax = ax.append(pd.Series({label: o}))
+    return ax
+
+def show_image(im, ax=None, figsize=None, title=None, ctx=None, **kwargs):
+    "Show a PIL or PyTorch image on `ax`."
+    ax = ifnone(ax, ctx)
+    if ax is None: _, ax = plt.subplots(figsize=figsize)
+    # Handle pytorch axis order
+    if isinstance(im, Tensor):
+        im = to_cpu(im)
+        if im.shape[0] < 5: im = im.permute(1, 2, 0)
+    elif not isinstance(im,  np.ndarray): im = np.array(im)
+    # Handle 1-channel images
+    if im.shape[-1] == 1: im = im[...,0]
+    ax.imshow(im, **kwargs)
+    if title is not None: ax.set_title(title)
+    ax.axis("off")
+    return ax
+
+def show_titled_image(o, **kwargs):
+    "Call `show_image` destructuring `o` to `(img, title)`"
+    show_image(o[0], title=str(o[1]), **kwargs)
+
+def show_image_batch(b, show=show_titled_image, items=9, cols=3, figsize=None, **kwargs):
+    "Display batch `b` in a grid of size `items` with `cols` width"
+    rows = (items+cols-1) // cols
+    if figsize is None: figsize = (cols*3, rows*3)
+    fig, axs = plt.subplots(rows, cols, figsize=figsize)
+    for *o, ax in zip(*to_cpu(b), axs.flatten()): show(o, ax=ax, **kwargs)
