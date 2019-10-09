@@ -1,31 +1,23 @@
-import os
-import re
+__all__ = ["defaults", "FixSigMeta", "PrePostInitMeta", "NewChkMeta", "BypassNewMeta", "copy_func", "patch_to", "patch",
+           "patch_property", "use_kwargs", "delegates", "funcs_kwargs", "method", "add_docs", "docs", "custom_dir",
+           "_0", "_1", "_2", "_3", "_4", "bind", "GetAttr", "delegate_attr", "coll_repr", "mask2idxs", "listable_types",
+           "CollBase", "cycle", "zip_cycle", "is_indexer", "L", "ifnone", "get_class", "mk_class", "wrap_class",
+           "store_attr", "attrdict", "properties", "tuplify", "replicate", "uniqueify", "setify", "is_listy",
+           "range_of", "groupby", "merge", "shufflish", "IterLen", "ReindexCollection", "lt", "gt", "le", "ge", "eq",
+           "ne", "add", "sub", "mul", "truediv", "Inf", "true", "stop", "gen", "chunked", "retain_type", "retain_types",
+           "show_title", "ShowTitle", "Int", "Float", "Str", "num_methods", "rnum_methods", "inum_methods", "Tuple",
+           "TupleTitled", "trace", "compose", "maps", "partialler", "mapped", "instantiate", "Self", "bunzip",
+           "join_path_file", "sort_by_run", "display_df", "round_multiple", "even_mults", "num_cpus", "add_props",
+           "camel2snake", "PrettyString"]
+
 import bz2
 import types
 import typing
-import random
 import inspect
-import operator
 import functools
-import itertools
 
-import mimetypes
-import numpy as np
-import pandas as pd
-
-from types import SimpleNamespace
-
-from copy import copy
-from pathlib import Path
-from test import is_iter
-from typing import Generator, Iterator
-from functools import partial
-from operator import itemgetter
-from contextlib import contextmanager
-from IPython.core.debugger import set_trace
-from pathlib import Path
-
-from imports import is_coll, NoneType
+from .test import *
+from .imports import *
 
 defaults = SimpleNamespace()
 
@@ -47,7 +39,7 @@ class PrePostInitMeta(FixSigMeta):
         if type(res) == cls:
             if hasattr(res, "__pre_init__"): res.__pre_init__(*args, **kwargs)
             res.__init__(*args, **kwargs)
-            if hasattr(res, "__pre_init__"): res.__post_init__(*args, **kwargs)
+            if hasattr(res, "__post_init__"): res.__post_init__(*args, **kwargs)
         return res
 
 class NewChkMeta(FixSigMeta):
@@ -98,7 +90,7 @@ def patch_to(cls, as_prop=False):
 
 def patch(func):
     "Decorator: add `func` to the first parameter's class (based on func's type annotations)."
-    # neat method if first argument is class we can transer function to the class
+    # neat method if first argument is class we can transfer function to the class
     # however first argument becomes self
     cls = next(iter(func.__annotations__.values()))
     return patch_to(cls)(func)
@@ -500,14 +492,6 @@ def wrap_class(nm, *fld_names, sup=None, doc=None, funcs=None, **flds):
         return f
     return _inner
 
-def noop(x=None, *args, **kwargs):
-    "Do nothing."
-    return x
-
-def noops(self, x=None, *args, **kwargs):
-    "Do nothing."
-    return x
-
 def store_attr(self, nms):
     "Store params named in comma-separated `nms` from calling context into attrs in `self`"
     mod = inspect.currentframe().f_back.f_locals
@@ -870,6 +854,18 @@ def num_cpus():
 
 defaults.cpus = num_cpus()
 
-def add_pops(f, n=2):
+def add_props(f, n=2):
     "Create properties passing each of `range(n)` to f"
     return (property(partial(f, i)) for i in range(n))
+
+#Comes from 13_learner.ipynb, cell
+_camel_re1 = re.compile("(.)([A-Z][a-z]+)")
+_camel_re2 = re.compile("([a-z0-9])([A-Z])")
+
+def camel2snake(name):
+    s1 = re.sub(_camel_re1, r"\1_\2", name)
+    return re.sub(_camel_re2, r"\1_\2", s1).lower()
+
+class PrettyString(str):
+    "Little hack to get strings to show properly in Jupyter."
+    def __repr__(self): return self
