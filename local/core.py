@@ -470,7 +470,7 @@ def get_class(nm, *fld_names, sup=None, doc=None, funcs=None, **flds):
         for k,v in kwargs.items(): setattr(self, k, v)
 
     def _repr(self):
-        return "\n".join(f"{o}: {gegtattr(self, o)}" for o in set(dir(self))
+        return "\n".join(f"{o}: {getattr(self, o)}" for o in set(dir(self))
                 if not o.startswith("_") and not isinstance(getattr(self, o), types.MethodType))
 
     if not sup: attrs["__repr__"]= _repr

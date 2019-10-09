@@ -293,3 +293,64 @@ def show_image_batch(b, show=show_titled_image, items=9, cols=3, figsize=None, *
     if figsize is None: figsize = (cols*3, rows*3)
     fig, axs = plt.subplots(rows, cols, figsize=figsize)
     for *o, ax in zip(*to_cpu(b), axs.flatten()): show(o, ax=ax, **kwargs)
+
+def requries_grad(m):
+    "Check if the first parameter of `m` requires grad or not"
+    ps = list(m.parameters())
+    return ps[0].requires_grad if len(ps) > 0 else False
+
+def init_default(m, func=nn.init.kaiming_normal_):
+    "Initialize `m` weights with `func` and set `bias` to 0."
+    if func:
+        if hasattr(m, "weight"): func(m.weight)
+        if hasattr(m, "bias") and hasattr(m.bias, "data"): m.bias.data.fill_(0.)
+    return m
+
+def cond_init(m, func):
+    "Apply `init_default` to `m` unless it's a batchnorm module."
+    if (not isinstance(m, bn_types)) and requries_grad(m): init_default(m, func)
+
+def apply_leaf(m, f):
+    "Apply `f` to children of `m`."
+    c = m.children()
+    if isinstance(m, nn.Module): f(m)
+    for l in c: apply_leaf(l, f)
+
+def apply_init(m, func=nn.init.kaiming_normal_):
+    "Initialize all non-batchnorm layers of `m` with `func`."
+    apply_leaf(m, partial(cond_init, func=func))
+
+from multiprocessing import Process, Queue
+
+class ProcessPoolExecutor(concurrent.futures.ProcessPoolExecutor):
+    def __init__(self, max_workers=None, mp_context=None, initializer=None, initargs=()):
+        self.no_workers = max_workers == 0
+        if self.no_workers: max_workers = 1
+        super().__init__(max_workers, mp_context, initializer=initializer, initargs=initializer)
+
+    def map(self, f, items, *args, **kwargs):
+        g = partial(f, *args, **kwargs)
+        return L(items).map(g) if self.no_workers else super().map(g, items)
+
+def parallel(f, items, *args, n_workers=defaults.cpus, **kwargs):
+    "Applies `func` in parallel to `items`, using `n_workers`"
+    with ProcessPoolExecutor(n_workers) as ex:
+        return L(progress_bar(ex.map(f, items, *args, **kwargs), total=len(items), leave=False))
+
+def run_procs(f, f_done, args):
+    "Call `f` for each item in `args` in parallel, yielding `f_done`"
+    processes = L(args).map(Process, args=_0, target=f)
+    for o in processes: o.start()
+    try: yield from f_done()
+    except Exception as e: print(e)
+    finally: processes.map(Self.join())
+
+def parallel_gen(cls, items, n_workers=defaults.cpus, as_gen=False, **kwargs):
+    "Instantiate `cls` in `in_workers` procs & calleach on a subset of `items` in parallel."
+    batches = np.array_split(items, n_workers)
+    idx = np.cumsum(0 + L(batches).map(len))
+    queue = Queue()
+    def f(batch, start_idx):
+        for i, b in enumerate(cls(**kwargs)(batch)): queue.put((start_idx+i, b))
+    def done(): return (queue.get() for _ in progress_bar(items, leave=False))
+    yield from run_procs(f, done, L(batches, idx).zip())

@@ -17,7 +17,9 @@ import io,\
        inspect,\
        types,\
        string,\
-       functools
+       functools,\
+       concurrent.futures,\
+       time
 
 from concurrent.futures import as_completed
 from functools import partial, reduce
