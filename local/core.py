@@ -589,9 +589,9 @@ class _InfMeta(type):
     @property
     def zeros(self): return itertools.cycle([0])
     @property
-    def ones(self): return itertools.cylce([1])
+    def ones(self): return itertools.cycle([1])
     @property
-    def nones(self): return itertools.cylce([None])
+    def nones(self): return itertools.cycle([None])
 
 class Inf(metaclass=_InfMeta):
     "Infinite lists"
