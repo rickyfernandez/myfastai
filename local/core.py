@@ -221,10 +221,11 @@ class GetAttr:
     Inherit from this to have all attr accesses in `self._xtra`
     passed down to `self.default`
     """
+    # use default to pass (i.e. self._default = "Hi" in __init__)
     _default="default"
     @property
     def _xtra(self):
-        # default if _xtra not defined
+        # default if _xtra not defined by new class
         return [o for o in dir(getattr(self, self._default))
                 if not o.startswith("_")]
 
